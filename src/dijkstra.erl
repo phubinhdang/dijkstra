@@ -10,7 +10,7 @@
 -author("dabi").
 
 %% API
--export([dijkstra/3, lt/2]).
+-export([dijkstra/3]).
 
 %% main function
 %% Filename without extension
@@ -18,37 +18,44 @@
 %% DU : directed(d) or undirected
 %% function call example : dijkstra(graph_03,11,d)
 dijkstra(Filename,StartVertex,DU)->
-  G = adtgraph:importG(Filename,DU),
-  L = createVertexAttrList(G,StartVertex,[]),
-  ExistUnknownVertex = existUnknownVertex(L),
-  findPath(ExistUnknownVertex,G,L)
 
+  case util:type_is(Filename) == atom  of
+%%     Main, filename is a filename
+    true -> G = adtgraph:importG(Filename, DU),
+      L = createL(G, StartVertex, []),
+      Exist = existUnknownNode(L),
+      findPath(Exist, G, L);
+    false ->
+%%      Filename is already a graph, just for runtime tests
+      L = createL(Filename, StartVertex, []),
+      Exist = existUnknownNode(L),
+      findPath(Exist, Filename, L)
+  end
 .
-
 %%%%%%%%%%%%%%%%%%%%%%% help method %%%%%%%%%%%%%%%%%%%
 
 findPath(true, G, L)->
-TupleOfVertex = findTupleOfClosestVertex(L),
+  TupleOfVertex = findClosestUnknownNode(L),
   {Vertex,_,_,_} = TupleOfVertex,
-  NewL = markVertexAsKnown(L,Vertex),
+  NewL = markNodeAsKnown(L,Vertex),
   Targets = adtgraph:getTarget(G,Vertex),
   updateOptimalDistance(G,NewL,Targets,TupleOfVertex)
 ;
 
-% if found all shortest way to all vertexs (no unknown vertex) -> return result
+% if found all shortest way to all nodes (no unknown node) -> return result
 findPath(false, _, L)-> extractResult(L).
 
-% update optimal distances so far for all targets of a vertex
+% update optimal distances so far for all targets of a node
 updateOptimalDistance(G,L,Targets,TupleOfVertex)->
   updateIterator(G,L,Targets,TupleOfVertex)
-  .
+.
 
-% if all the targets vertex are checked,
-% go back to outer loop (check and update all target of next vertex)
+% if all the target-nodes are checked,
+% go back to outer loop (check and update all target-nodes of next node)
 updateIterator(G,L,[],_TupleOfVertex)->
-  findPath(existUnknownVertex(L),G,L);
+  findPath(existUnknownNode(L),G,L);
 
-% check and update if meet requirement to all the targets of examining vertex
+% check and update if meet requirement to all the target-nodes of examining node
 updateIterator(G,L,[H|Tail],{Vertex,Known,Dist,Path})->
   Target = H,
   % determine distances
@@ -58,7 +65,7 @@ updateIterator(G,L,[H|Tail],{Vertex,Known,Dist,Path})->
   case StartToTarget > add(StartToVertex, VertexToTarget) of
     % if find shorter way
     true -> UpdatedL = updateDistAndPath(L,Target,add(StartToVertex, VertexToTarget),Vertex),
-            updateIterator(G,UpdatedL,Tail,{Vertex,Known,Dist,Path});
+      updateIterator(G,UpdatedL,Tail,{Vertex,Known,Dist,Path});
     % else
     false -> updateIterator(G,L,Tail,{Vertex,Known,Dist,Path})
   end
@@ -102,28 +109,27 @@ extractResultHelper([{Vertex,_,Distance,Path}|Tail],[H|Rest])->
   extractResultHelper(Tail,[{Vertex,Distance,Path},H|Rest]).
 
 % mark a vertex when the optimal way from start to it is known
-markVertexAsKnown([],_)->
+markNodeAsKnown([],_)->
   [];
-markVertexAsKnown([{Vertex,_,Dist,Path}|Tail],Vertex)->
+markNodeAsKnown([{Vertex,_,Dist,Path}|Tail],Vertex)->
   [{Vertex,true,Dist,Path}|Tail];
-markVertexAsKnown([{VertexA,UnKnownA,DistanceA,PathA}|Tail],VertexB)->
-  [{VertexA,UnKnownA,DistanceA,PathA}|markVertexAsKnown(Tail,VertexB)]
-  .
-
+markNodeAsKnown([{VertexA,UnKnownA,DistanceA,PathA}|Tail],VertexB)->
+  [{VertexA,UnKnownA,DistanceA,PathA}| markNodeAsKnown(Tail,VertexB)]
+.
 % find a unknown vertex and it related attribute (known, cost, path)
 % which is closest to start vertex so far
-findTupleOfClosestVertex(L)->
-findTupleHelper(L,{}).
+findClosestUnknownNode(L)->
+  findTupleHelper(L,{}).
 
 % termination condition
 findTupleHelper([], Tuple )-> Tuple;
-% unknown closestVertex := first unknown vertex occurrence
+% unknown closestNode := first unknown node occurrence
 findTupleHelper([{Vertex,false,Distance,Path}|Tail], {} )->
   findTupleHelper(Tail,{Vertex,false,Distance,Path});
 findTupleHelper([{_,_,_,_}|Tail], {} )->
   findTupleHelper(Tail,{});
 
-% unknown closestVertex = the next unknown vertex occurrence if its cost is smaller current cost
+% unknown closestNode = the next unknown node occurrence if its cost is smaller than current nodes cost
 findTupleHelper([{Vertex1,false,Distance1,Path1}|Tail], {Vertex2,false,Distance2,Path2} )->
   case lt(Distance1,Distance2 ) of
     true -> findTupleHelper(Tail,{Vertex1,false,Distance1,Path1});
@@ -144,24 +150,20 @@ lt(Dist1, Dist2) ->
   end.
 
 % check if there are still vertex, which is not examined for the optimal way
-existUnknownVertex([]) ->
+existUnknownNode([]) ->
   false;
-existUnknownVertex([{_,false,_,_} |_]) ->
+existUnknownNode([{_,false,_,_} |_]) ->
   true;
-existUnknownVertex([ _|Tail]) ->
-  existUnknownVertex(Tail).
+existUnknownNode([ _|Tail]) ->
+  existUnknownNode(Tail).
 
-% create a list of tuples
-% every tuple in form : {Vertex, Known, Distance, Path/Previous Vertex}
-% Known : true/false; whether the optimal way from start vertex to this vertex is determined
-% Distance : the cost to get there(Vertex) from start vertex
-% Path : the last Vertex is gone through until Vertex is reached (from start vertex)
-createVertexAttrList(G,StartVertex, List) ->
+% create a auxiliary list from graph for this algorithms
+createL(G,StartVertex, List) ->
   VL = adtgraph:getVertices(G),
   util:globalvar(contains), util:setglobalvar(contains, contains(VL, StartVertex)),
   Contains = util:getglobalvar(contains),
   case Contains of
-    true ->   setStartVetex(createVertexAttrHelper(VL,List),StartVertex);
+    true ->   setStartNode(createVertexAttrHelper(VL,List),StartVertex);
     false -> io:fwrite("Sorry, ~0p is not in graph~n",[StartVertex]),exit("Error: StartVertex not in graph")
   end.
 
@@ -176,14 +178,14 @@ createVertexAttrHelper([], List) ->
   List.
 
 
-%% set distance to start vertex to itself is 0
-%% set prev vertex of start vertex is itself
-setStartVetex([], _StartVertex) ->
+%% set distance to start node to itself is 0
+%% set prev node of start node is itself
+setStartNode([], _StartVertex) ->
   [];
-setStartVetex([{StartVertex,Unknown,_,_}|T], StartVertex) ->
+setStartNode([{StartVertex,Unknown,_,_}|T], StartVertex) ->
   [{StartVertex,Unknown,0,StartVertex}|T];
-setStartVetex([{Vertex,Known,Cost,Path}|T], StartVertex) ->
-  [{Vertex,Known,Cost,Path}|setStartVetex(T,StartVertex)].
+setStartNode([{Vertex,Known,Cost,Path}|T], StartVertex) ->
+  [{Vertex,Known,Cost,Path}| setStartNode(T,StartVertex)].
 
 % check if a vertex in vertexlist
 contains([], _Vertex) ->
